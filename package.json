@@ -1,9 +1,11 @@
 {
   "name": "lsky-upload",
   "displayName": "Lsky Upload",
-  "description": "",
+  "description": "lsky 图床 markdown 插件",
+  "keywords": ["vscode", "lsky", "markdown"],
   "version": "0.0.1",
   "publisher":"hausen1012",
+  "icon": "images/icon.png",
   "engines": {
     "vscode": "^1.72.0"
   },
