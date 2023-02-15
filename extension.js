@@ -6,6 +6,7 @@ const moment = require('moment');
 const fs = require('fs');
 const axios = require('axios');
 const { spawn } = require('child_process');
+const https = require('https');
 
 var uploaded = false;
 // This method is called when your extension is activated
@@ -17,13 +18,12 @@ var uploaded = false;
 function activate(context) {
 
 	console.log('Congratulations, your extension "lsky-upload" is now active!');
-
 	let disposable = vscode.commands.registerCommand('lsky-upload', function () {
 		uploaded = false;
 		vscode.window.withProgress({
             location: vscode.ProgressLocation.Notification,
             title: 'Progress',
-            cancellable: false
+            cancellable: true
         }, (progress) => {
             return new Promise(resolve => {
 				uploaded = false;
@@ -109,28 +109,40 @@ function lskyUpload(config, imagePath){
 		var token = await getToken(config);
 		console.log("token=" + token);
 		//console.log(imagePath);
+		let file =  fs.createReadStream(imagePath, {autoClose: true});
 		var data = {
-			strategy_id: 1,
-			file: await fs.createReadStream(imagePath, {autoClose: true})
+			strategy_id: config['strategyId'],
+			file,
 		};
-
+		console.log(data.file);
 		let url = config['baseUrl'] + config['uploadPath'];
 		let auth = 'Bearer ' + token;
 		let headers = {
 			'Authorization': auth,
-			'Content-Type': 'multipart/form-data'
+			'Content-Type': 'multipart/form-data',
+			'Accept': 'application/json'
 		};
 		//@ts-ignore
 		axios({
 			url,
 			method: 'POST',
 			headers,
-			data: data
+			data
 		}).then(res => {
-			resolve(res.data.data.links.markdown);
+			console.log(res);
+			if(res.status == 200){
+				if(Object.keys(res.data.data).length == 0){
+					resolve(res.data.message);
+				}else{
+					resolve(res.data.data.links.markdown);
+				}
+			}else{
+				resolve(res);
+			}
 		}).catch(err => {
+			console.log("报错了");
 			console.log(err);
-			reject(err)
+			reject(err);
 			return;
 		})
 	})
@@ -140,11 +152,24 @@ function lskyUpload(config, imagePath){
 async function getToken(config) {
 	var token = config['token'];
 	if(token == null || token == ''){
-		var tokenUrl = config['baseUrl'] + config['tokenPath'] + "?email=" + config['email'] + "&password=" + config['password'];
+		var tokenUrl = config['baseUrl'] + config['tokenPath'];
+		// + "?email=" + config['email'] + "&password=" + config['password'];
 		console.log(tokenUrl);
-		await axios.post(tokenUrl).then(res => {
-			//console.log(res);
-			token = res.data.data.token;
+		var data = {
+			"email": config['email'],
+			"password": config['password']
+		}
+		console.log(data);
+		//@ts-ignore
+		await axios({
+				url: tokenUrl,
+				method: 'POST',
+				data
+			}).then(res => {
+			console.log(res);
+			if(res.status == 200){
+				token = res.data.data.token;
+			}
 		})
 		.catch(err => {
 			console.log(err);
