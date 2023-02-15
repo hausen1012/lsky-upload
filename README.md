@@ -9,5 +9,6 @@
 - token：如果已经获取过 token，可直接填入
 - tokenPath：获取 token 的接口路径，默认 /api/v1/tokens
 - uploadPath：上传的接口路径，默认 /api/v1/upload
+- strategyId：储存策略id，默认 1
 
 必填：Base Url，Email，Password。
