@@ -26,7 +26,7 @@ function activate(context) {
             cancellable: true
         }, (progress) => {
             return new Promise(resolve => {
-				uploaded = false;
+								uploaded = false;
                 start(progress);
                 var intervalObj = setInterval(() => {
                     if (uploaded) {
@@ -107,14 +107,17 @@ function lskyUpload(config, imagePath){
 
 	return new Promise(async (resolve, reject) => {
 		var token = await getToken(config);
+		if(token.length == 0){
+			reject({"message": "原因是 token 获取失败"});
+			return;
+		}
 		console.log("token=" + token);
-		//console.log(imagePath);
 		let file =  fs.createReadStream(imagePath, {autoClose: true});
 		var data = {
 			strategy_id: config['strategyId'],
 			file,
 		};
-		console.log(data.file);
+		//console.log(data.file);
 		let url = config['baseUrl'] + config['uploadPath'];
 		let auth = 'Bearer ' + token;
 		let headers = {
@@ -132,7 +135,7 @@ function lskyUpload(config, imagePath){
 			console.log(res);
 			if(res.status == 200){
 				if(Object.keys(res.data.data).length == 0){
-					resolve(res.data.message);
+					reject({"message": "原因是" + res.data.message});
 				}else{
 					resolve(res.data.data.links.markdown);
 				}
@@ -140,7 +143,6 @@ function lskyUpload(config, imagePath){
 				resolve(res);
 			}
 		}).catch(err => {
-			console.log("报错了");
 			console.log(err);
 			reject(err);
 			return;
@@ -149,33 +151,32 @@ function lskyUpload(config, imagePath){
 
 }
 
-async function getToken(config) {
+function getToken(config) {
 	var token = config['token'];
 	if(token == null || token == ''){
 		var tokenUrl = config['baseUrl'] + config['tokenPath'];
-		// + "?email=" + config['email'] + "&password=" + config['password'];
 		console.log(tokenUrl);
 		var data = {
 			"email": config['email'],
 			"password": config['password']
 		}
-		console.log(data);
+		// await 不需要 then，需要等待返回结果再进行下一步
 		//@ts-ignore
-		await axios({
-				url: tokenUrl,
-				method: 'POST',
-				data
-			}).then(res => {
-			console.log(res);
-			if(res.status == 200){
-				token = res.data.data.token;
-			}
-		})
-		.catch(err => {
+		let res;
+		try {
+			 res = await axios({
+					url: tokenUrl,
+					method: 'POST',
+					data
+			});
+		}catch(err){
 			console.log(err);
-			return;
-		});
-			
+			return token;
+		}
+		console.log(res);
+		if(res.status == 200){
+			token = res.data.data.token;
+		}
 		vscode.workspace.getConfiguration().update("lsky.token", token, true)
 	}
 	return token;

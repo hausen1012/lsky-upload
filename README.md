@@ -12,3 +12,6 @@
 - strategyId：储存策略id，默认 1
 
 必填：Base Url，Email，Password。
+
+如返回 401 错误，请确认填写的 token 是否正确
+如返回 404 错误，请确认填写的 api 路径是否正确
