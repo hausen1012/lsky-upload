@@ -7,6 +7,7 @@ const fs = require('fs');
 const axios = require('axios');
 const { spawn } = require('child_process');
 const https = require('https');
+const tinify = require("tinify");
 
 var uploaded = false;
 // This method is called when your extension is activated
@@ -75,18 +76,18 @@ function start(progress) {
 	}
 	let filePath = fileUri.fsPath;
 	let imagePath = getImagePath(filePath, selectText, localPath);
-	progress.report({ increment: 10, message: '上传中...' });
 	createImageDirWithImagePath(imagePath).then(imagePath => {
-		progress.report({ increment: 20, message: '上传中...' });
-		saveClipboardImageToFileAndGetPath(imagePath, (imagePath) => {
-			if (!imagePath) return;
+		saveClipboardImageToFileAndGetPath(imagePath,progress, (imagePath) => {
+			if (!imagePath) {
+				progress.report({ increment: 100, message: '上传失败！'});
+				return;
+			}
 			if (imagePath === 'no image') {
 				progress.report({ increment: 100, message: "剪贴板没有图片！" });
 				return;
 			}
 
-			progress.report({ increment: 50, message: '上传中...' });
-			lskyUpload(config, imagePath).then(img => {
+			lskyUpload(config, imagePath, progress).then(img => {
 				editor.edit(textEditorEdit => {
 					textEditorEdit.insert(editor.selection.active, img);
 				});
@@ -103,84 +104,89 @@ function start(progress) {
 	});
 }
 
-function lskyUpload(config, imagePath){
-
+function lskyUpload(config, imagePath, progress) {
+	progress.report({ increment: 20, message: '压缩完成，图片正在上传到图床...' });
 	return new Promise(async (resolve, reject) => {
-		var token = await getToken(config);
-		if(token.length == 0){
-			reject({"message": "原因是 token 获取失败"});
+		let token = await getToken(config);
+		if (token.length === 0) {
+			reject({ message: "原因是 token 获取失败" });
 			return;
 		}
 		console.log("token=" + token);
-		let file =  fs.createReadStream(imagePath, {autoClose: true});
-		var data = {
-			strategy_id: config['strategyId'],
+
+		const file = fs.createReadStream(imagePath, { autoClose: true });
+		const data = {
+			strategy_id: config.strategyId,
 			file,
 		};
-		//console.log(data.file);
-		let url = config['baseUrl'] + config['uploadPath'];
-		let auth = 'Bearer ' + token;
-		let headers = {
-			'Authorization': auth,
-			'Content-Type': 'multipart/form-data',
-			'Accept': 'application/json'
+		const url = config.baseUrl + config.uploadPath;
+		const auth = "Bearer " + token;
+		const headers = {
+			Authorization: auth,
+			"Content-Type": "multipart/form-data",
+			Accept: "application/json",
 		};
-		//@ts-ignore
-		axios({
+
+		try {
+		// @ts-ignore
+		const res = await axios({
 			url,
-			method: 'POST',
+			method: "POST",
 			headers,
-			data
-		}).then(res => {
-			console.log(res);
-			if(res.status == 200){
-				if(Object.keys(res.data.data).length == 0){
-					reject({"message": "原因是" + res.data.message});
-				}else{
-					resolve(res.data.data.links.markdown);
-				}
-			}else{
-				resolve(res);
+			data,
+		});
+
+		console.log(res);
+		if (res.status === 200) {
+			if (Object.keys(res.data.data).length === 0) {
+			reject({ message: "原因是" + res.data.message });
+				return;
 			}
-		}).catch(err => {
+				resolve(res.data.data.links.markdown);
+			return;
+		} else {
+			resolve(res);
+			return;
+		}
+		} catch (err) {
 			console.log(err);
 			reject(err);
 			return;
-		})
-	})
-
+		}
+	});
 }
-
-function getToken(config) {
-	var token = config['token'];
-	if(token == null || token == ''){
-		var tokenUrl = config['baseUrl'] + config['tokenPath'];
+  
+async function getToken(config) {
+	let token = config.token;
+	if (!token) {
+		const tokenUrl = config.baseUrl + config.tokenPath;
 		console.log(tokenUrl);
-		var data = {
-			"email": config['email'],
-			"password": config['password']
-		}
-		// await 不需要 then，需要等待返回结果再进行下一步
-		//@ts-ignore
-		let res;
+		const data = {
+		email: config.email,
+		password: config.password,
+		};
+
 		try {
-			 res = await axios({
-					url: tokenUrl,
-					method: 'POST',
-					data
+			// @ts-ignore
+			const res = await axios({
+				url: tokenUrl,
+				method: "POST",
+				data,
 			});
-		}catch(err){
-			console.log(err);
-			return token;
-		}
-		console.log(res);
-		if(res.status == 200){
+
+			console.log(res);
+		if (res.status === 200) {
 			token = res.data.data.token;
 		}
-		vscode.workspace.getConfiguration().update("lsky.token", token, true)
+		vscode.workspace.getConfiguration().update("lsky.token", token, true);
+		} catch (err) {
+		console.log(err);
+		token = null;
+		}
 	}
 	return token;
 }
+  
 
 function getImagePath(filePath, selectText, localPath) {
 	// 图片名称
@@ -221,6 +227,7 @@ function createImageDirWithImagePath(imagePath) {
 	});
 }
 
+/** 
 function saveClipboardImageToFileAndGetPath(imagePath, cb) {
 	if (!imagePath) return;
 	let platform = process.platform;
@@ -274,6 +281,112 @@ function saveClipboardImageToFileAndGetPath(imagePath, cb) {
 			cb(result);
 		});
 	}
+}
+*/
+
+function compressImage(imagePath, progress, cb) {
+	let config = vscode.workspace.getConfiguration('lsky');
+	let tinyKeys = config['tinyKeys'];
+	if (!tinyKeys) {
+		cb(null);
+		return;
+	}
+	progress.report({ increment: 20, message: '正在使用 Tinypng 压缩图片...' });
+	let keys = tinyKeys.split(',');
+	let key = keys[Math.floor(Math.random() * keys.length)].toString().trim();
+	console.log(key);
+	tinify.key = key;
+	tinify.fromFile(imagePath).toFile(imagePath, err => {
+		if (err) {
+			cb(err);
+			return;
+		}
+		cb(null);
+    });
+}
+
+
+function saveClipboardImageToFileAndGetPath(imagePath, progress, cb) {
+  progress.report({ increment: 20, message: '将剪贴板图片保存到本地...' });
+  if (!imagePath) return;
+  let platform = process.platform;
+  if (platform === 'win32') {
+    // Windows
+    const scriptPath = path.join(__dirname, './lib/pc.ps1');
+    const powershell = spawn('powershell', [
+      '-noprofile',
+      '-noninteractive',
+      '-nologo',
+      '-sta',
+      '-executionpolicy', 'unrestricted',
+      '-windowstyle', 'hidden',
+      '-file', scriptPath,
+      imagePath
+    ]);
+    powershell.on('exit', function (code, signal) {
+
+    });
+    powershell.stdout.on('data', function (data) {
+      // 调用 tinypng 进行压缩
+      compressImage(imagePath, progress, err => {
+        if (err) {
+          console.error('Failed to compress image:', err);
+		  vscode.window.showErrorMessage('Tinypng 压缩图片失败, 原因是 ' +  err.message);
+		  cb(null);
+		  return;
+        }
+        cb(data.toString().trim());
+      });
+    });
+  } else if (platform === 'darwin') {
+    // Mac
+    let scriptPath = path.join(__dirname, './lib/mac.applescript');
+
+    let ascript = spawn('osascript', [scriptPath, imagePath]);
+    ascript.on('exit', function (code, signal) {
+
+    });
+
+    ascript.stdout.on('data', function (data) {
+      // 调用 tinypng 进行压缩
+      compressImage(imagePath, progress, err => {
+        if (err) {
+          console.error('Failed to compress image:', err);
+		  vscode.window.showErrorMessage('Tinypng 压缩图片失败, 原因是 ' +  err.message);
+		  cb(null);
+		  return;
+        }
+        cb(data.toString().trim());
+      });
+    });
+  } else {
+    // Linux
+
+    let scriptPath = path.join(__dirname, './lib/linux.sh');
+
+    let ascript = spawn('sh', [scriptPath, imagePath]);
+    ascript.on('exit', function (code, signal) {
+
+    });
+
+    ascript.stdout.on('data', function (data) {
+      let result = data.toString().trim();
+      if (result == 'no xclip') {
+        vscode.window.showInformationMessage('You need to install xclip command first.');
+        return;
+      }
+      // 调用 tinypng 进行压缩
+      compressImage(imagePath, progress, err => {
+        if (err) {
+          console.error('Failed to compress image:', err);
+		  vscode.window.showErrorMessage('Tinypng 压缩图片失败, 原因是 ' +  err.message);
+		  cb(null);
+		  return;
+        }
+        cb(result);
+      });
+    });
+  }
 }
 
 

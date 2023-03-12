@@ -28,7 +28,7 @@
         "lsky.baseUrl": {
           "type": "string",
           "default": null,
-          "description": "lsky 地址"
+          "description": "lsky 图床地址"
         },
         "lsky.tokenPath": {
           "type": "string",
@@ -43,17 +43,17 @@
         "lsky.email": {
           "type": "string",
           "default": null,
-          "description": "用户名"
+          "description": "图床用户名"
         },
         "lsky.password": {
           "type": "string",
           "default": null,
-          "description": "密码"
+          "description": "图床密码"
         },
         "lsky.token": {
           "type": "string",
           "default": null,
-          "description": "接口token"
+          "description": "上传接口token, 不填则先获取token, 获取到后保存本地"
         },
         "lsky.tempPath": {
           "type": "string",
@@ -63,7 +63,12 @@
         "lsky.strategyId": {
           "type": "integer",
           "default": 1,
-          "description": "储存策略id"
+          "description": "图床中储存策略id"
+        },
+        "lsky.tinyKeys": {
+          "type": "string",
+          "default": null,
+          "description": "Tinypng调用需要的key列表, 多个key以英文逗号分隔, 调用时随机选取其中一个"
         }
       }
     },
@@ -109,10 +114,11 @@
     "vscode": "^1.1.37"
   },
   "dependencies": {
-    "axios": "^1.1.3",
+    "axios": "^1.3.4",
     "https": "^1.0.0",
     "moment": "^2.18.1",
-    "shelljs": "^0.8.3"
+    "shelljs": "^0.8.3",
+    "tinify": "^1.7.1"
   },
   "repository": {
     "type": "git",
