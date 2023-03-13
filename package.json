@@ -7,7 +7,7 @@
     "lsky",
     "markdown"
   ],
-  "version": "1.2.0",
+  "version": "1.2.1",
   "publisher": "hausen1012",
   "icon": "images/icon.png",
   "engines": {
@@ -68,7 +68,7 @@
         "lsky.tinyKeys": {
           "type": "string",
           "default": null,
-          "description": "Tinypng调用需要的key列表, 多个key以英文逗号分隔, 调用时随机选取其中一个"
+          "description": "Tinypng调用需要的key列表, 多个key以英文逗号分隔, 调用时随机选取其中一个。（不可以和图床的压缩同时用, 需要在角色组修改图像保存质量为100）"
         }
       }
     },

@@ -77,7 +77,7 @@ function start(progress) {
 	let filePath = fileUri.fsPath;
 	let imagePath = getImagePath(filePath, selectText, localPath);
 	createImageDirWithImagePath(imagePath).then(imagePath => {
-		saveClipboardImageToFileAndGetPath(imagePath,progress, (imagePath) => {
+		saveClipboardImageToFileAndGetPath(imagePath, progress, (imagePath) => {
 			if (!imagePath) {
 				progress.report({ increment: 100, message: '上传失败！'});
 				return;
@@ -87,14 +87,19 @@ function start(progress) {
 				return;
 			}
 
-			lskyUpload(config, imagePath, progress).then(img => {
-				editor.edit(textEditorEdit => {
+			compressImage(imagePath, progress).then((imagePath) => {
+				lskyUpload(config, imagePath, progress).then(img => {
+				  editor.edit(textEditorEdit => {
 					textEditorEdit.insert(editor.selection.active, img);
+				  });
+				  progress.report({ increment: 100, message: '上传成功！' });
+				  uploaded = true;
+				}).catch((err) => {
+				  progress.report({ increment: 100, message: '上传失败！' + err.message });
+				  return;
 				});
-				progress.report({ increment: 100, message: '上传成功！' });
-				uploaded = true;
-			}).catch((err) => {
-				progress.report({ increment: 100, message: '上传失败！' + err.message });
+			}).catch(err => {
+				progress.report({ increment: 100, message: '压缩失败！' + err.message });
 				return;
 			});
 		});
@@ -282,7 +287,6 @@ function saveClipboardImageToFileAndGetPath(imagePath, cb) {
 		});
 	}
 }
-*/
 
 function compressImage(imagePath, progress, cb) {
 	let config = vscode.workspace.getConfiguration('lsky');
@@ -304,89 +308,120 @@ function compressImage(imagePath, progress, cb) {
 		cb(null);
     });
 }
+console.error('Failed to compress image:', err);
+					vscode.window.showErrorMessage('Tinypng 压缩图片失败, 原因是 ' +  err.message);
+					reject(null);
+*/
 
+function compressImage(imagePath, progress) {
+  return new Promise((resolve, reject) => {
+    let config = vscode.workspace.getConfiguration('lsky');
+    let tinyKeys = config['tinyKeys'];
+    if (!tinyKeys) {
+      reject(null);
+      return;
+    }
 
-function saveClipboardImageToFileAndGetPath(imagePath, progress, cb) {
-  progress.report({ increment: 20, message: '将剪贴板图片保存到本地...' });
-  if (!imagePath) return;
-  let platform = process.platform;
-  if (platform === 'win32') {
-    // Windows
-    const scriptPath = path.join(__dirname, './lib/pc.ps1');
-    const powershell = spawn('powershell', [
-      '-noprofile',
-      '-noninteractive',
-      '-nologo',
-      '-sta',
-      '-executionpolicy', 'unrestricted',
-      '-windowstyle', 'hidden',
-      '-file', scriptPath,
-      imagePath
-    ]);
-    powershell.on('exit', function (code, signal) {
-
-    });
-    powershell.stdout.on('data', function (data) {
-      // 调用 tinypng 进行压缩
-      compressImage(imagePath, progress, err => {
-        if (err) {
-          console.error('Failed to compress image:', err);
-		  vscode.window.showErrorMessage('Tinypng 压缩图片失败, 原因是 ' +  err.message);
-		  cb(null);
-		  return;
-        }
-        cb(data.toString().trim());
-      });
-    });
-  } else if (platform === 'darwin') {
-    // Mac
-    let scriptPath = path.join(__dirname, './lib/mac.applescript');
-
-    let ascript = spawn('osascript', [scriptPath, imagePath]);
-    ascript.on('exit', function (code, signal) {
-
-    });
-
-    ascript.stdout.on('data', function (data) {
-      // 调用 tinypng 进行压缩
-      compressImage(imagePath, progress, err => {
-        if (err) {
-          console.error('Failed to compress image:', err);
-		  vscode.window.showErrorMessage('Tinypng 压缩图片失败, 原因是 ' +  err.message);
-		  cb(null);
-		  return;
-        }
-        cb(data.toString().trim());
-      });
-    });
-  } else {
-    // Linux
-
-    let scriptPath = path.join(__dirname, './lib/linux.sh');
-
-    let ascript = spawn('sh', [scriptPath, imagePath]);
-    ascript.on('exit', function (code, signal) {
-
-    });
-
-    ascript.stdout.on('data', function (data) {
-      let result = data.toString().trim();
-      if (result == 'no xclip') {
-        vscode.window.showInformationMessage('You need to install xclip command first.');
+	// 检查图片大小
+    const stats = fs.statSync(imagePath);
+    const fileSizeInBytes = stats.size;
+    const fileSizeInMegabytes = fileSizeInBytes / (1024 * 1024);
+    if (fileSizeInMegabytes > 5) {
+	    reject({ message: "图片不能超过5M" });
         return;
-      }
-      // 调用 tinypng 进行压缩
-      compressImage(imagePath, progress, err => {
-        if (err) {
-          console.error('Failed to compress image:', err);
-		  vscode.window.showErrorMessage('Tinypng 压缩图片失败, 原因是 ' +  err.message);
-		  cb(null);
+    }
+
+	progress.report({ increment: 20, message: '正在使用Tinypng压缩图片...' });
+    let keys = tinyKeys.split(',');
+    let key = keys[Math.floor(Math.random() * keys.length)].toString().trim();
+    tinify.key = key;
+
+	// 
+    tinify.fromFile(imagePath).toFile(imagePath, err => {
+		if (err) {
+		  reject(err);
 		  return;
-        }
-        cb(result);
-      });
-    });
-  }
+		}
+  
+		// 检查压缩后的图片是否大于1M，如果大于1M继续进行压缩
+		const compressedStats = fs.statSync(imagePath);
+		const compressedSizeInBytes = compressedStats.size;
+		const compressedSizeInMegabytes = compressedSizeInBytes / (1024 * 1024);
+  
+		if (compressedSizeInMegabytes > 1) {
+		  console.log(`第一次压缩大小: ${compressedSizeInMegabytes}MB`);
+		  progress.report({ increment: 20, message: '正在使用Tinypng进行二次压缩...' });
+		  // Perform another round of compression
+		  tinify.fromFile(imagePath).toFile(imagePath, err => {
+			if (err) {
+			  reject(err);
+			  return;
+			}
+			const reCompressedStats = fs.statSync(imagePath);
+			const reCompressedSizeInBytes = reCompressedStats.size;
+			const reCompressedSizeInMegabytes = reCompressedSizeInBytes / (1024 * 1024);
+			console.log(`第二次压缩大小: ${reCompressedSizeInMegabytes}MB`);
+			resolve(imagePath);
+		  });
+		} else {
+		  resolve(imagePath);
+		}
+	});
+  });
 }
 
+function saveClipboardImageToFileAndGetPath(imagePath, progress, cb) {
+	progress.report({ increment: 20, message: '将剪贴板图片保存到本地...' });
+	if (!imagePath) return;
+	let platform = process.platform;
+	if (platform === 'win32') {
+		// Windows
+		const scriptPath = path.join(__dirname, './lib/pc.ps1');
+		const powershell = spawn('powershell', [
+			'-noprofile',
+			'-noninteractive',
+			'-nologo',
+			'-sta',
+			'-executionpolicy', 'unrestricted',
+			'-windowstyle', 'hidden',
+			'-file', scriptPath,
+			imagePath
+		]);
+		powershell.on('exit', function (code, signal) {
 
+		});
+		powershell.stdout.on('data', function (data) {
+			cb(data.toString().trim());
+		});
+	} else if (platform === 'darwin') {
+		// Mac
+		let scriptPath = path.join(__dirname, './lib/mac.applescript');
+
+		let ascript = spawn('osascript', [scriptPath, imagePath]);
+		ascript.on('exit', function (code, signal) {
+
+		});
+
+		ascript.stdout.on('data', function (data) {
+			cb(data.toString().trim());
+		});
+	} else {
+		// Linux
+
+		let scriptPath = path.join(__dirname, './lib/linux.sh');
+
+		let ascript = spawn('sh', [scriptPath, imagePath]);
+		ascript.on('exit', function (code, signal) {
+
+		});
+
+		ascript.stdout.on('data', function (data) {
+			let result = data.toString().trim();
+			if (result == 'no xclip') {
+					vscode.window.showInformationMessage('You need to install xclip command first.');
+					return;
+			}
+			cb(result);
+		});
+	}
+}
