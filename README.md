@@ -11,7 +11,7 @@
 - uploadPath：上传的接口路径，默认 /api/v1/upload
 - strategyId：储存策略id，默认 1
 - tinyKeys：调用 Tinypng 接口使用的 key，默认为空，则不进行压缩
-- lsky.domainList：不替换图片地址的域名, 多个域名以英文逗号分隔
+- domainList：不替换图片地址的域名, 多个域名以英文逗号分隔
 
 必填：Base Url，Email，Password。
 
