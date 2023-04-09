@@ -10,6 +10,7 @@ const https = require('https');
 const tinify = require("tinify");
 
 var uploaded = false;
+const config = vscode.workspace.getConfiguration('lsky');
 // This method is called when your extension is activated
 // Your extension is activated the very first time the command is executed
 
@@ -27,8 +28,8 @@ function activate(context) {
             cancellable: true
         }, (progress) => {
             return new Promise(resolve => {
-								uploaded = false;
-                start(progress);
+				uploaded = false;
+				saveImg(progress);
                 var intervalObj = setInterval(() => {
                     if (uploaded) {
                         setTimeout(() => {
@@ -42,6 +43,32 @@ function activate(context) {
 	});
 
 	context.subscriptions.push(disposable);
+
+	let replaceImgUrlDisposable = vscode.commands.registerCommand('replace-imgurl', () => {
+		
+		uploaded = false;
+		vscode.window.withProgress({
+            location: vscode.ProgressLocation.Notification,
+            title: 'Progress',
+            cancellable: true
+        }, (progress) => {
+            return new Promise(resolve => {
+				uploaded = false;
+				replaceImgUrl(progress);
+                var intervalObj = setInterval(() => {
+                    if (uploaded) {
+                        setTimeout(() => {
+                            clearInterval(intervalObj);
+                            resolve();
+                        }, 1000);
+                    }
+                }, 1000);
+            });
+        });
+		
+	});
+	
+	context.subscriptions.push(replaceImgUrlDisposable);
 }
 
 // This method is called when your extension is deactivated
@@ -52,7 +79,71 @@ module.exports = {
 	deactivate
 }
 
-function start(progress) {
+
+async function replaceImgUrl(progress) {
+	let editor = vscode.window.activeTextEditor;
+	if (!editor) {
+		vscode.window.showErrorMessage("No editor is active.");
+		return;
+	}
+
+	let text = editor.document.getText();
+	const regex = /\!\[.*\]\((http.*?)\)/gi
+	let match, links;
+	let total = 0; // 记录图片的总数
+	let replaced = 0; // 记录替换成功的图片数量
+	let offset = 0; // 记录替换的总长度
+	let promises = []; // 用于并行处理所有替换操作的 Promise 数组
+
+	while ((match = regex.exec(text)) !== null) {
+		var imageUrl = match[1];
+		var domainList = config['domainList'];
+		if (domainList.includes(new URL(imageUrl).hostname)) {
+            console.log(`图片 ${imageUrl} 在 domainList 中，跳过`);
+            continue;
+        }
+		console.log(`第 ${total + 1} 张图片地址: ` + imageUrl);
+		total++;
+		links = await getNewUrl(imageUrl, progress);
+		if (links) {
+			const start = match.index + offset; // 根据替换总长度计算实际位置
+			const end = start + match[0].length;
+			const range = new vscode.Range(editor.document.positionAt(start), editor.document.positionAt(end));
+			const promise = editor.edit(editBuilder => {
+				editBuilder.replace(range, links.markdown);
+			});
+			promises.push(promise);
+			offset += links.markdown.length - match[0].length; // 记录替换的总长度
+			replaced++;
+		}
+	}
+
+	await Promise.all(promises); // 等待所有替换操作完成
+	uploaded = true;
+	vscode.window.showInformationMessage(`共 ${total} 张图片，成功替换 ${replaced} 张图片`);
+}
+  
+
+async function getNewUrl(imageUrl, progress){
+	//let config = vscode.workspace.getConfiguration('lsky');
+	let localPath = config['tempPath'];
+	if (localPath && (localPath.length !== localPath.trim().length)) {
+		progress.report({ increment: 100, message: `本地临时保存图片路径未定义 ${localPath}`});
+		return;
+	}
+	try {
+		let imagePath = await downloadImage(imageUrl, localPath);
+		imagePath = await compressImage(imagePath, progress);
+		let links = await lskyUpload(config, imagePath, progress);
+		return links;
+	} catch (err) {
+		progress.report({ increment: 100, message: '压缩失败！' + err.message });
+		return;
+	}
+}
+
+
+function saveImg(progress) {
 	// 获取当前编辑文件
 	let editor = vscode.window.activeTextEditor;
 	if (!editor) return;
@@ -68,7 +159,7 @@ function start(progress) {
 		progress.report({ increment: 100, message: '选择的文本不是可用的文件名'});
 		return;
 	}
-	let config = vscode.workspace.getConfiguration('lsky');
+	//let config = vscode.workspace.getConfiguration('lsky');
 	let localPath = config['tempPath'];
 	if (localPath && (localPath.length !== localPath.trim().length)) {
 		progress.report({ increment: 100, message: `本地临时保存图片路径未定义 ${localPath}`});
@@ -76,46 +167,36 @@ function start(progress) {
 	}
 	let filePath = fileUri.fsPath;
 	let imagePath = getImagePath(filePath, selectText, localPath);
-	createImageDirWithImagePath(imagePath).then(imagePath => {
-		saveClipboardImageToFileAndGetPath(imagePath, progress, (imagePath) => {
-			if (!imagePath) {
-				progress.report({ increment: 100, message: '上传失败！'});
-				return;
-			}
-			if (imagePath === 'no image') {
-				progress.report({ increment: 100, message: "剪贴板没有图片！" });
-				return;
-			}
-
-			compressImage(imagePath, progress).then((imagePath) => {
-				lskyUpload(config, imagePath, progress).then(img => {
-				  editor.edit(textEditorEdit => {
-					textEditorEdit.insert(editor.selection.active, img);
-				  });
-				  progress.report({ increment: 100, message: '上传成功！' });
-				  uploaded = true;
-				}).catch((err) => {
-				  progress.report({ increment: 100, message: '上传失败！' + err.message });
-				  return;
-				});
-			}).catch(err => {
-				progress.report({ increment: 100, message: '压缩失败！' + err.message });
-				return;
-			});
+	createImageDirWithImagePath(imagePath)
+	.then(() => saveClipboardImageToFileAndGetPath(imagePath, progress))
+	.then(imagePath => {
+		// @ts-ignore
+		// 由于这是其他脚本没有图片时给出的路径,懒得修改, 这个时候应该抛出错误
+		if (imagePath == 'no image') {return Promise.reject(new Error('剪贴板没有图片！'));}
+		return compressImage(imagePath, progress);
+	})
+	.then(imagePath => lskyUpload(config, imagePath, progress))
+	.then(links => {
+		// console.log(links);
+		editor.edit(textEditorEdit => {
+			textEditorEdit.insert(editor.selection.active, links.markdown);
 		});
-	}).catch(() => {
-		progress.report({ increment: 100, message: '文件创建失败！' });
-		return;
+		progress.report({ increment: 100, message: '上传成功！' });
+		uploaded = true;
+	})
+	.catch(err => {
+		progress.report({ increment: 100, message: '上传失败！' + err.message });
 	});
+
 }
 
+
 function lskyUpload(config, imagePath, progress) {
-	progress.report({ increment: 20, message: '压缩完成，图片正在上传到图床...' });
+	progress.report({ increment: 20, message: '图片正在上传到图床...' });
 	return new Promise(async (resolve, reject) => {
 		let token = await getToken(config);
-		if (token.length === 0) {
-			reject({ message: "原因是 token 获取失败" });
-			return;
+		if (!token || token.length === 0) {
+			reject({ message: "token 获取失败" });
 		}
 		console.log("token=" + token);
 
@@ -133,30 +214,26 @@ function lskyUpload(config, imagePath, progress) {
 		};
 
 		try {
-		// @ts-ignore
-		const res = await axios({
-			url,
-			method: "POST",
-			headers,
-			data,
-		});
+			// @ts-ignore
+			const res = await axios({
+				url,
+				method: "POST",
+				headers,
+				data,
+			});
 
-		console.log(res);
-		if (res.status === 200) {
-			if (Object.keys(res.data.data).length === 0) {
-			reject({ message: "原因是" + res.data.message });
-				return;
+			console.log(res);
+			if (res.status === 200) {
+				if (Object.keys(res.data.data).length === 0) {
+					reject(res);
+				}
+				resolve(res.data.data.links);
+			} else {
+				reject(res);
 			}
-				resolve(res.data.data.links.markdown);
-			return;
-		} else {
-			resolve(res);
-			return;
-		}
 		} catch (err) {
 			console.log(err);
 			reject(err);
-			return;
 		}
 	});
 }
@@ -180,13 +257,13 @@ async function getToken(config) {
 			});
 
 			console.log(res);
-		if (res.status === 200) {
-			token = res.data.data.token;
-		}
-		vscode.workspace.getConfiguration().update("lsky.token", token, true);
+			if (res.status === 200) {
+				token = res.data.data.token;
+			}
+			vscode.workspace.getConfiguration().update("lsky.token", token, true);
 		} catch (err) {
-		console.log(err);
-		token = null;
+			console.log(err);
+			token = null;
 		}
 	}
 	return token;
@@ -232,90 +309,9 @@ function createImageDirWithImagePath(imagePath) {
 	});
 }
 
-/** 
-function saveClipboardImageToFileAndGetPath(imagePath, cb) {
-	if (!imagePath) return;
-	let platform = process.platform;
-	if (platform === 'win32') {
-		// Windows
-		const scriptPath = path.join(__dirname, './lib/pc.ps1');
-		const powershell = spawn('powershell', [
-			'-noprofile',
-			'-noninteractive',
-			'-nologo',
-			'-sta',
-			'-executionpolicy', 'unrestricted',
-			'-windowstyle', 'hidden',
-			'-file', scriptPath,
-			imagePath
-		]);
-		powershell.on('exit', function (code, signal) {
-
-		});
-		powershell.stdout.on('data', function (data) {
-			cb(data.toString().trim());
-		});
-	} else if (platform === 'darwin') {
-		// Mac
-		let scriptPath = path.join(__dirname, './lib/mac.applescript');
-
-		let ascript = spawn('osascript', [scriptPath, imagePath]);
-		ascript.on('exit', function (code, signal) {
-
-		});
-
-		ascript.stdout.on('data', function (data) {
-			cb(data.toString().trim());
-		});
-	} else {
-		// Linux
-
-		let scriptPath = path.join(__dirname, './lib/linux.sh');
-
-		let ascript = spawn('sh', [scriptPath, imagePath]);
-		ascript.on('exit', function (code, signal) {
-
-		});
-
-		ascript.stdout.on('data', function (data) {
-			let result = data.toString().trim();
-			if (result == 'no xclip') {
-					vscode.window.showInformationMessage('You need to install xclip command first.');
-					return;
-			}
-			cb(result);
-		});
-	}
-}
-
-function compressImage(imagePath, progress, cb) {
-	let config = vscode.workspace.getConfiguration('lsky');
-	let tinyKeys = config['tinyKeys'];
-	if (!tinyKeys) {
-		cb(null);
-		return;
-	}
-	progress.report({ increment: 20, message: '正在使用 Tinypng 压缩图片...' });
-	let keys = tinyKeys.split(',');
-	let key = keys[Math.floor(Math.random() * keys.length)].toString().trim();
-	console.log(key);
-	tinify.key = key;
-	tinify.fromFile(imagePath).toFile(imagePath, err => {
-		if (err) {
-			cb(err);
-			return;
-		}
-		cb(null);
-    });
-}
-console.error('Failed to compress image:', err);
-					vscode.window.showErrorMessage('Tinypng 压缩图片失败, 原因是 ' +  err.message);
-					reject(null);
-*/
-
 function compressImage(imagePath, progress) {
   return new Promise((resolve, reject) => {
-    let config = vscode.workspace.getConfiguration('lsky');
+    //let config = vscode.workspace.getConfiguration('lsky');
     let tinyKeys = config['tinyKeys'];
     if (!tinyKeys) {
       reject(null);
@@ -327,7 +323,7 @@ function compressImage(imagePath, progress) {
     const fileSizeInBytes = stats.size;
     const fileSizeInMegabytes = fileSizeInBytes / (1024 * 1024);
     if (fileSizeInMegabytes > 5) {
-	    reject({ message: "图片不能超过5M" });
+	    reject({ message: "图片不能超过5M！" });
         return;
     }
 
@@ -370,58 +366,109 @@ function compressImage(imagePath, progress) {
   });
 }
 
-function saveClipboardImageToFileAndGetPath(imagePath, progress, cb) {
-	progress.report({ increment: 20, message: '将剪贴板图片保存到本地...' });
-	if (!imagePath) return;
-	let platform = process.platform;
-	if (platform === 'win32') {
-		// Windows
-		const scriptPath = path.join(__dirname, './lib/pc.ps1');
-		const powershell = spawn('powershell', [
-			'-noprofile',
-			'-noninteractive',
-			'-nologo',
-			'-sta',
-			'-executionpolicy', 'unrestricted',
-			'-windowstyle', 'hidden',
-			'-file', scriptPath,
-			imagePath
-		]);
-		powershell.on('exit', function (code, signal) {
+function saveClipboardImageToFileAndGetPath(imagePath, progress) {
+	return new Promise((resolve, reject) => {
+		progress.report({ increment: 20, message: '将剪贴板图片保存到本地...' });
+		if (!imagePath) {
+			reject(new Error('imagePath不能为空！'));
+			return;
+		}
+		let platform = process.platform;
+		if (platform === 'win32') {
+			// Windows
+			const scriptPath = path.join(__dirname, './lib/pc.ps1');
+			const powershell = spawn('powershell', [
+				'-noprofile',
+				'-noninteractive',
+				'-nologo',
+				'-sta',
+				'-executionpolicy', 'unrestricted',
+				'-windowstyle', 'hidden',
+				'-file', scriptPath,
+				imagePath
+			]);
+			powershell.on('exit', function (code, signal) {
 
-		});
-		powershell.stdout.on('data', function (data) {
-			cb(data.toString().trim());
-		});
-	} else if (platform === 'darwin') {
-		// Mac
-		let scriptPath = path.join(__dirname, './lib/mac.applescript');
+			});
+			powershell.stdout.on('data', function (data) {
+				resolve(data.toString().trim());
+			});
+		} else if (platform === 'darwin') {
+			// Mac
+			let scriptPath = path.join(__dirname, './lib/mac.applescript');
 
-		let ascript = spawn('osascript', [scriptPath, imagePath]);
-		ascript.on('exit', function (code, signal) {
+			let ascript = spawn('osascript', [scriptPath, imagePath]);
+			ascript.on('exit', function (code, signal) {
 
-		});
+			});
 
-		ascript.stdout.on('data', function (data) {
-			cb(data.toString().trim());
-		});
-	} else {
-		// Linux
+			ascript.stdout.on('data', function (data) {
+				resolve(data.toString().trim());
+			});
+		} else {
+			// Linux
 
-		let scriptPath = path.join(__dirname, './lib/linux.sh');
+			let scriptPath = path.join(__dirname, './lib/linux.sh');
 
-		let ascript = spawn('sh', [scriptPath, imagePath]);
-		ascript.on('exit', function (code, signal) {
+			let ascript = spawn('sh', [scriptPath, imagePath]);
+			ascript.on('exit', function (code, signal) {
 
-		});
+			});
 
-		ascript.stdout.on('data', function (data) {
-			let result = data.toString().trim();
-			if (result == 'no xclip') {
-					vscode.window.showInformationMessage('You need to install xclip command first.');
+			ascript.stdout.on('data', function (data) {
+				let result = data.toString().trim();
+				if (result == 'no xclip') {
+					reject(new Error('需要先安装 xclip 命令！'));
 					return;
-			}
-			cb(result);
-		});
+				}
+				resolve(result);
+			});
+		}
+	});
+}
+
+async function downloadImage(imageUrl, localPath) {
+	// @ts-ignore
+	const response = await axios({
+	  url: imageUrl,
+	  method: 'GET',
+	  responseType: 'stream',
+	  headers: {
+		Accept: 'image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
+	  },
+	});
+  
+	const contentType = response.headers['content-type'];
+	// 判断是否是图片
+	if (!contentType.startsWith('image/')) {
+		return '';
 	}
+
+	let extension = '.png'; // 默认后缀为 .jpg
+	if (contentType.startsWith('image/')) {
+	  extension = '.' + contentType.substring('image/'.length);
+	}
+  
+	const imageFileName = moment().format('YMMDDHHmmss') + extension;
+	const imgPath = path.join(localPath, imageFileName);
+  
+	const writer = fs.createWriteStream(imgPath);
+	response.data.pipe(writer);
+  
+	return new Promise((resolve, reject) => {
+	  writer.on('finish', () => {
+		resolve(imgPath);
+	  });
+  
+	  writer.on('error', reject);
+	});
+}
+
+function preHandleUrl(imageUrl) {
+
+	if (imageUrl.includes("img-blog.csdn.net")) { // 检查字符串是否包含 "img-blog.csdn.net"
+		imageUrl = imageUrl.split("?")[0]; // 使用 split() 方法获取 "?" 前的字符串
+		console.log("csdn 去水印图片地址: " + imageUrl);
+	}
+	return imageUrl;
 }
