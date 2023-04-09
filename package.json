@@ -85,7 +85,7 @@
       },
       {
         "command": "replace-imgurl",
-        "title": "Replace Imgurl"
+        "title": "Lsky Batch Upload"
       }
     ],
     "keybindings": [
@@ -94,6 +94,12 @@
         "key": "ctrl+alt+v",
         "mac": "ctrl+alt+v",
         "when": "editorTextFocus"
+      },
+      {
+        "command": "replace-imgurl",
+        "key": "ctrl+alt+k",
+        "mac": "ctrl+alt+k",
+        "when": "editorTextFocus"
       }
     ],
     "menus": {
@@ -101,12 +107,12 @@
         {
           "when": "editorFocus && resourceLangId == markdown",
           "command": "lsky-upload",
-          "group": "navigation@6"
+          "group": "navigation@1"
         },
         {
           "when": "editorLangId == 'markdown'",
           "command": "replace-imgurl",
-          "group": "navigation"
+          "group": "navigation@12"
         }
       ]
     }
