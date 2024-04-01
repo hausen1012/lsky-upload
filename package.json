@@ -7,7 +7,7 @@
     "lsky",
     "markdown"
   ],
-  "version": "1.2.3",
+  "version": "1.2.4",
   "publisher": "hausen1012",
   "icon": "images/icon.png",
   "engines": {
@@ -18,7 +18,7 @@
   ],
   "activationEvents": [
     "onCommand:lsky-upload",
-    "onCommand:replace-imgurl"
+    "onCommand:lsky-batch-upload"
   ],
   "main": "./extension.js",
   "contributes": {
@@ -84,7 +84,7 @@
         "title": "Lsky Upload"
       },
       {
-        "command": "replace-imgurl",
+        "command": "lsky-batch-upload",
         "title": "Lsky Batch Upload"
       }
     ],
@@ -96,7 +96,7 @@
         "when": "editorTextFocus"
       },
       {
-        "command": "replace-imgurl",
+        "command": "lsky-batch-upload",
         "key": "ctrl+alt+k",
         "mac": "ctrl+alt+k",
         "when": "editorTextFocus"
@@ -111,7 +111,7 @@
         },
         {
           "when": "editorLangId == 'markdown'",
-          "command": "replace-imgurl",
+          "command": "lsky-batch-upload",
           "group": "navigation@12"
         }
       ]
