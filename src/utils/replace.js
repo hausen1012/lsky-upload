@@ -65,7 +65,7 @@ async function getNewUrl(imageUrl) {
 		const matches = markdown.match(regex);
 		const imgurl = matches[1];
 		
-		return imageUrl;
+		return imgurl;
 	} catch (error) {
 		throw new Error(imageUrl + "替换失败");
 	}
