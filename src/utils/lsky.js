@@ -9,7 +9,7 @@ async function lskyUpload(file) {
     try {
         // 1. 获取token
         let token = await getToken();        
-        console.log("token=" + token);
+        console.log("token：" + token);
 
         // 2. 上传
         let res = await upload(token, file); 
@@ -41,7 +41,6 @@ async function upload(token, file) {
     try {
         // @ts-ignore
         const res = await axios.post(url, data, { headers });
-        console.log(res);
         if (res.status === 200) {
             return res;
         } else {
@@ -54,6 +53,7 @@ async function upload(token, file) {
 
 // 获取 token
 async function getToken() {
+    
     if (!token) {
         const url = baseUrl + tokenPath;
         const data = { email, password };
@@ -61,7 +61,6 @@ async function getToken() {
         try {
             // @ts-ignore
             const res = await axios.post(url, data);
-            console.log(res);
 
             if (res.status === 200) {
                 vscode.workspace.getConfiguration().update("lsky.token", res.data.data.token, true);

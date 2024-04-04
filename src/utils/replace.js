@@ -4,7 +4,7 @@ const path = require('path');
 const moment = require('moment');
 const {compressImage} = require('./compress')
 const {lskyUpload} = require('./lsky')
-const { tempPath, tinyKeys, domainList } = require("../extension/config");
+const { tempPath, tinyKeys } = require("../extension/config");
 
 async function downloadImage(imageUrl) {
 
@@ -46,31 +46,29 @@ async function downloadImage(imageUrl) {
 
 async function getNewUrl(imageUrl) {
 
-    return new Promise(async (resolve, reject) => {
-        try {
-            // 1. 下载图片
-            let imagePath = await downloadImage(imageUrl);
-                
-            // 2. 压缩图片
-            if (tinyKeys) {
-                await compressImage(imagePath);
-            }
-
-            // 3. 上传图片
-            let file = fs.createReadStream(imagePath);
-            let res = await lskyUpload(file);
-
-			// 4. 提取图片地址
-			const markdown = res.data.data.links.markdown;
-			const regex = /\(([^)]+)\)/;
-			const matches = markdown.match(regex);
-			const imgurl = matches[1];
+    try {
+		// 1. 下载图片
+		let imagePath = await downloadImage(imageUrl);
 			
-            resolve(imgurl); // 返回上传结果
-        } catch (error) {
-            reject(error); // 捕获异常并返回
-        }
-    });
+		// 2. 压缩图片
+		if (tinyKeys) {
+			await compressImage(imagePath);
+		}
+
+		// 3. 上传图片
+		let file = fs.createReadStream(imagePath);
+		let res = await lskyUpload(file);
+
+		// 4. 提取图片地址
+		const markdown = res.data.data.links.markdown;
+		const regex = /\(([^)]+)\)/;
+		const matches = markdown.match(regex);
+		const imgurl = matches[1];
+		
+		return imageUrl;
+	} catch (error) {
+		throw new Error(imageUrl + "替换失败");
+	}
 }
 
 function preHandleUrl(imageUrl) {

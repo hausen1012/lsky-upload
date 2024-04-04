@@ -148,12 +148,13 @@ async function replaceImage(document, imageUrl) {
     const editor = vscode.window.activeTextEditor;
     if (editor) {
         const newUrl = await getNewUrl(imageUrl);
-        let newText = document.getText();
-        newText = newText.replace(imageUrl, newUrl);
+        let text = document.getText();
+
+        let newText = text.replace(imageUrl, newUrl);
 
         const fullRange = new vscode.Range(
             document.positionAt(0),
-            document.positionAt(newText.length)
+            document.positionAt(Math.max(text.length, newText.length))
         );
         editor.edit(editBuilder => {
             editBuilder.replace(fullRange, newText);
